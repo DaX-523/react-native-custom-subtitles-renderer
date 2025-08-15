@@ -89,6 +89,11 @@ export const AssAnimationRenderer: React.FC<AssAnimationProps> = ({
       const startTime = t1 ? parseInt(t1) : 0;
       const endTime = t2 ? parseInt(t2) : duration * 1000;
       
+      if (endTime - startTime > 1000) {
+      //we only proceed if the animation is longer than 1 second
+      //otherwise it will be too fast and not smooth  
+
+
       const moveAnimation = Animated.parallel([
         Animated.timing(animatedValues.translateX, {
           toValue: parseInt(x2) - parseInt(x1),
@@ -107,11 +112,11 @@ export const AssAnimationRenderer: React.FC<AssAnimationProps> = ({
       animationSequence.push(moveAnimation);
     }
 
+  }
     // Start all animations
     if (animationSequence.length > 0) {
       Animated.parallel(animationSequence).start();
     }
-
     return () => {
       // Cleanup animations
       Object.values(animatedValues).forEach(value => {

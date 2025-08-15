@@ -29,6 +29,36 @@ export interface AssStyle {
   encoding: number;
 }
 
+export interface OverrideTag {
+  type: string; // e.g., 'c', '1c', '2c', '3c', 'alpha', 'frz', etc.
+  value: string;
+  startIndex: number; // position in text where this override starts
+}
+
+export interface Transition {
+  startOffset: number; // relative to dialogue start (ms)
+  endOffset: number; // relative to dialogue start (ms)
+  targetChanges: Record<string, string>; // property -> target value
+}
+
+export interface TextSegment {
+  text: string;
+  overrides: OverrideTag[];
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface FrameData {
+  timestamp: number; // relative to dialogue start (ms)
+  primaryColor?: string;
+  secondaryColor?: string;
+  outlineColor?: string;
+  backColor?: string;
+  alpha?: number;
+  fontSize?: number;
+  rotation?: number;
+}
+
 export interface AssDialogue {
   layer: number;
   start: number; // in seconds
@@ -41,6 +71,9 @@ export interface AssDialogue {
   effect: string;
   text: string;
   originalText: string; // with formatting tags
+  segments?: TextSegment[]; // parsed text segments with overrides
+  transitions?: Transition[]; // time-based transitions
+  frames?: FrameData[]; // pre-computed frame data for smooth interpolation
 }
 
 export interface AssSubtitle {
@@ -117,7 +150,7 @@ export class AssSubtitleParser {
     if (values.length !== format.length) return;
 
     const style: Partial<AssStyle> = {};
-    
+    console.log('format', format, 'values', values, 'line', line)
     for (let i = 0; i < format.length; i++) {
       const field = format[i];
       const value = values[i]?.trim();
@@ -134,15 +167,19 @@ export class AssSubtitleParser {
           break;
         case 'PrimaryColour':
           style.primaryColour = this.parseColor(value);
+          console.log('primaryColour', style.primaryColour)
           break;
         case 'SecondaryColour':
           style.secondaryColour = this.parseColor(value);
+          console.log('secondaryColour', style.secondaryColour)
           break;
         case 'OutlineColour':
           style.outlineColour = this.parseColor(value);
+          console.log('outlineColour', style.outlineColour)
           break;
         case 'BackColour':
           style.backColour = this.parseColor(value);
+          console.log('backColour', style.backColour)
           break;
         case 'Bold':
           style.bold = value === '1' || value === '-1';
@@ -249,6 +286,9 @@ export class AssSubtitleParser {
         case 'Text':
           dialogue.originalText = value;
           dialogue.text = this.stripFormattingTags(value);
+          // Parse override tags and transitions
+          dialogue.segments = this.parseTextSegments(value);
+          dialogue.transitions = this.parseTransitions(value);
           break;
       }
     }
@@ -276,26 +316,15 @@ export class AssSubtitleParser {
    * Convert ASS color format (&HAABBGGRR) to hex color
    */
   private static parseColor(colorStr: string): string {
-    if (!colorStr || !colorStr.startsWith('&H')) return '#FFFFFF';
+    if (!colorStr || !colorStr.startsWith('&H')) return 'rgba(255,255,255,1)';
     
-    const hex = colorStr.substring(2);
-    if (hex.length === 8) {
-      // ASS format: AABBGGRR -> RRGGBBAA
-      const bb = hex.substring(2, 4);
-      const gg = hex.substring(4, 6);
-      const rr = hex.substring(6, 8);
-      
-      // Convert to standard hex color (ignore alpha for now)
-      return `#${rr}${gg}${bb}`;
-    } else if (hex.length === 6) {
-      // RGB format: BBGGRR -> RRGGBB
-      const bb = hex.substring(0, 2);
-      const gg = hex.substring(2, 4);
-      const rr = hex.substring(4, 6);
-      return `#${rr}${gg}${bb}`;
-    }
-    
-    return '#FFFFFF';
+    const hex = colorStr.substring(2).padStart(8, '0'); // ensure AA BB GG RR
+  const aa = parseInt(hex.substring(0, 2), 16);
+  const bb = parseInt(hex.substring(2, 4), 16);
+  const gg = parseInt(hex.substring(4, 6), 16);
+  const rr = parseInt(hex.substring(6, 8), 16);
+  const alpha = (255 - aa) / 255; // invert alpha
+  return `rgba(${rr}, ${gg}, ${bb}, ${alpha.toFixed(3)})`;
   }
 
   /**
@@ -347,6 +376,311 @@ export class AssSubtitleParser {
     }
 
     return colors;
+  }
+
+  /**
+   * Parse text into segments with override tags
+   */
+  private static parseTextSegments(text: string): TextSegment[] {
+    const segments: TextSegment[] = [];
+    const regex = /(\{[^}]*\})|([^{}]+)/g;
+    let match;
+    let currentIndex = 0;
+    let currentOverrides: OverrideTag[] = [];
+
+    while ((match = regex.exec(text)) !== null) {
+      if (match[1]) {
+        // This is an override tag
+        const overrides = this.parseOverrideTags(match[1]);
+        currentOverrides.push(...overrides.map(override => ({
+          ...override,
+          startIndex: currentIndex
+        })));
+      } else if (match[2]) {
+        // This is plain text
+        segments.push({
+          text: match[2],
+          overrides: [...currentOverrides],
+          startIndex: currentIndex,
+          endIndex: currentIndex + match[2].length
+        });
+        currentIndex += match[2].length;
+      }
+    }
+
+    return segments;
+  }
+
+  /**
+   * Parse override tags from a single {...} block
+   */
+  private static parseOverrideTags(tagBlock: string): OverrideTag[] {
+    const overrides: OverrideTag[] = [];
+    const content = tagBlock.slice(1, -1); // Remove { and }
+    
+    // Parse different types of override tags
+    const patterns = [
+      { type: '1c', regex: /\\(?:1c|c)&H([0-9A-Fa-f]{6,8})&/g },
+      { type: '2c', regex: /\\2c&H([0-9A-Fa-f]{6,8})&/g },
+      { type: '3c', regex: /\\3c&H([0-9A-Fa-f]{6,8})&/g },
+      { type: '4c', regex: /\\4c&H([0-9A-Fa-f]{6,8})&/g },
+      { type: 'alpha', regex: /\\alpha&H([0-9A-Fa-f]{2})&/g },
+      { type: '1a', regex: /\\1a&H([0-9A-Fa-f]{2})&/g },
+      { type: '2a', regex: /\\2a&H([0-9A-Fa-f]{2})&/g },
+      { type: '3a', regex: /\\3a&H([0-9A-Fa-f]{2})&/g },
+      { type: '4a', regex: /\\4a&H([0-9A-Fa-f]{2})&/g },
+      { type: 'fs', regex: /\\fs(\d+(?:\.\d+)?)/g },
+      { type: 'frz', regex: /\\frz(-?\d+(?:\.\d+)?)/g },
+      { type: 'fscx', regex: /\\fscx(\d+(?:\.\d+)?)/g },
+      { type: 'fscy', regex: /\\fscy(\d+(?:\.\d+)?)/g }
+    ];
+
+    for (const pattern of patterns) {
+      let match;
+      pattern.regex.lastIndex = 0; // Reset regex
+      while ((match = pattern.regex.exec(content)) !== null) {
+        overrides.push({
+          type: pattern.type,
+          value: match[1],
+          startIndex: 0 // Will be set by caller
+        });
+      }
+    }
+
+    return overrides;
+  }
+
+  /**
+   * Parse \t transitions from text
+   */
+  private static parseTransitions(text: string): Transition[] {
+    const transitions: Transition[] = [];
+    const regex = /\\t\(([^)]+)\)/g;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      const params = match[1].split(',').map(p => p.trim());
+      
+      if (params.length >= 3) {
+        const startOffset = parseFloat(params[0]) || 0;
+        const endOffset = parseFloat(params[1]) || 0;
+        const targetChanges: Record<string, string> = {};
+
+        // Parse the target override tags
+        const targetOverrides = params.slice(2).join(',');
+        const parsedOverrides = this.parseOverrideTags(`{${targetOverrides}}`);
+        
+        for (const override of parsedOverrides) {
+          targetChanges[override.type] = override.value;
+        }
+
+        transitions.push({
+          startOffset,
+          endOffset,
+          targetChanges
+        });
+      }
+    }
+
+    return transitions;
+  }
+
+  /**
+   * Generate frame data for smooth interpolation
+   */
+  static generateFrameData(dialogue: AssDialogue, style: AssStyle, frameRate: number = 30): FrameData[] {
+    const frames: FrameData[] = [];
+    const duration = (dialogue.end - dialogue.start) * 1000; // Convert to ms
+    const frameInterval = 1000 / frameRate;
+    
+    // Initialize with style defaults
+    let currentState = {
+      primaryColor: style.primaryColour,
+      secondaryColor: style.secondaryColour,
+      outlineColor: style.outlineColour,
+      backColor: style.backColour,
+      alpha: 1,
+      fontSize: style.fontsize,
+      rotation: style.angle
+    };
+
+    // Apply initial overrides from segments
+    if (dialogue.segments && dialogue.segments.length > 0) {
+      const firstSegment = dialogue.segments[0];
+      for (const override of firstSegment.overrides) {
+        currentState = this.applyOverrideToState(currentState, override);
+      }
+    }
+
+    for (let timestamp = 0; timestamp <= duration; timestamp += frameInterval) {
+      let frameData: FrameData = { timestamp, ...currentState };
+      
+      // Apply transitions for this timestamp
+      if (dialogue.transitions) {
+        for (const transition of dialogue.transitions) {
+          if (timestamp >= transition.startOffset && timestamp <= transition.endOffset) {
+            const progress = (timestamp - transition.startOffset) / (transition.endOffset - transition.startOffset);
+            frameData = this.interpolateFrameData(frameData, transition, progress);
+          }
+        }
+      }
+      
+      frames.push(frameData);
+    }
+
+    return frames;
+  }
+
+  /**
+   * Apply an override tag to the current state
+   */
+  private static applyOverrideToState(state: any, override: OverrideTag): any {
+    const newState = { ...state };
+    
+    switch (override.type) {
+      case '1c':
+      case 'c':
+        newState.primaryColor = this.parseColor(`&H${override.value}`);
+        break;
+      case '2c':
+        newState.secondaryColor = this.parseColor(`&H${override.value}`);
+        break;
+      case '3c':
+        newState.outlineColor = this.parseColor(`&H${override.value}`);
+        break;
+      case '4c':
+        newState.backColor = this.parseColor(`&H${override.value}`);
+        break;
+      case 'alpha':
+      case '1a':
+        newState.alpha = (255 - parseInt(override.value, 16)) / 255;
+        break;
+      case 'fs':
+        newState.fontSize = parseFloat(override.value);
+        break;
+      case 'frz':
+        newState.rotation = parseFloat(override.value);
+        break;
+    }
+    
+    return newState;
+  }
+
+  /**
+   * Interpolate frame data based on transition
+   */
+  private static interpolateFrameData(frameData: FrameData, transition: Transition, progress: number): FrameData {
+    const result = { ...frameData };
+    
+    for (const [type, targetValue] of Object.entries(transition.targetChanges)) {
+      switch (type) {
+        case '1c':
+        case 'c':
+          if (frameData.primaryColor) {
+            result.primaryColor = this.interpolateColor(frameData.primaryColor, this.parseColor(`&H${targetValue}`), progress);
+          }
+          break;
+        case '2c':
+          if (frameData.secondaryColor) {
+            result.secondaryColor = this.interpolateColor(frameData.secondaryColor, this.parseColor(`&H${targetValue}`), progress);
+          }
+          break;
+        case '3c':
+          if (frameData.outlineColor) {
+            result.outlineColor = this.interpolateColor(frameData.outlineColor, this.parseColor(`&H${targetValue}`), progress);
+          }
+          break;
+        case 'alpha':
+        case '1a':
+          if (frameData.alpha !== undefined) {
+            const targetAlpha = (255 - parseInt(targetValue, 16)) / 255;
+            result.alpha = frameData.alpha + (targetAlpha - frameData.alpha) * progress;
+          }
+          break;
+        case 'fs':
+          if (frameData.fontSize !== undefined) {
+            const targetSize = parseFloat(targetValue);
+            result.fontSize = frameData.fontSize + (targetSize - frameData.fontSize) * progress;
+          }
+          break;
+        case 'frz':
+          if (frameData.rotation !== undefined) {
+            const targetRotation = parseFloat(targetValue);
+            result.rotation = frameData.rotation + (targetRotation - frameData.rotation) * progress;
+          }
+          break;
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Interpolate between two colors
+   */
+  private static interpolateColor(fromColor: string, toColor: string, progress: number): string {
+    const fromRgba = this.parseRgbaColor(fromColor);
+    const toRgba = this.parseRgbaColor(toColor);
+    
+    if (!fromRgba || !toRgba) return fromColor;
+    
+    const r = Math.round(fromRgba.r + (toRgba.r - fromRgba.r) * progress);
+    const g = Math.round(fromRgba.g + (toRgba.g - fromRgba.g) * progress);
+    const b = Math.round(fromRgba.b + (toRgba.b - fromRgba.b) * progress);
+    const a = fromRgba.a + (toRgba.a - fromRgba.a) * progress;
+    
+    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+  }
+
+  /**
+   * Parse rgba color string to components
+   */
+  private static parseRgbaColor(color: string): { r: number; g: number; b: number; a: number } | null {
+    const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (!match) return null;
+    
+    return {
+      r: parseInt(match[1]),
+      g: parseInt(match[2]),
+      b: parseInt(match[3]),
+      a: match[4] ? parseFloat(match[4]) : 1
+    };
+  }
+
+  /**
+   * Apply alpha to a color string
+   */
+  static applyAlphaToColor(color: string, alpha: number): string {
+    const rgba = this.parseRgbaColor(color);
+    if (!rgba) return color;
+    
+    return `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${alpha.toFixed(3)})`;
+  }
+
+  /**
+   * Get frame data for a specific time within a dialogue
+   */
+  static getFrameDataAtTime(dialogue: AssDialogue, currentTime: number, style: AssStyle): FrameData | null {
+    if (!dialogue.frames) {
+      // Generate frames on demand if not already computed
+      dialogue.frames = this.generateFrameData(dialogue, style);
+    }
+    
+    const relativeTime = (currentTime - dialogue.start) * 1000; // Convert to ms
+    
+    // Find the closest frame
+    let closestFrame = dialogue.frames[0];
+    let minDiff = Math.abs(relativeTime - closestFrame.timestamp);
+    
+    for (const frame of dialogue.frames) {
+      const diff = Math.abs(relativeTime - frame.timestamp);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestFrame = frame;
+      }
+    }
+    
+    return closestFrame;
   }
 
   /**

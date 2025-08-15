@@ -38,7 +38,9 @@ export const AssSubtitleRenderer: React.FC<AssSubtitleRendererProps> = ({
   // Extract positioning and color overrides from the original text
   const positioning = AssSubtitleParser.extractPositioning(dialogue.originalText);
   const colorOverrides = AssSubtitleParser.extractColors(dialogue.originalText);
-
+  
+  // Get frame data for current time to support smooth transitions
+  const frameData = AssSubtitleParser.getFrameDataAtTime(dialogue, currentTime, style);
   // Calculate position based on alignment and positioning
   const getPosition = () => {
     let x = positioning.x || 0;
@@ -160,17 +162,26 @@ export const AssSubtitleRenderer: React.FC<AssSubtitleRendererProps> = ({
     return baseStyle;
   };
 
-  // Calculate text style
+  // Calculate text style using frame data for smooth transitions
   const getTextStyle = () => {
-    const primaryColor = colorOverrides.primaryColor || style.primaryColour;
-    const outlineColor = colorOverrides.outlineColor || style.outlineColour;
+    // Use frame data if available, otherwise fall back to static overrides and style
+    const primaryColor = frameData?.primaryColor || colorOverrides.primaryColor || style.primaryColour;
+    const outlineColor = frameData?.outlineColor || colorOverrides.outlineColor || style.outlineColour;
+    const fontSize = frameData?.fontSize || style.fontsize;
+    const rotation = frameData?.rotation || style.angle;
+    const alpha = frameData?.alpha !== undefined ? frameData.alpha : 1;
+
+    // Apply alpha to primary color if frame data provides it
+    const finalPrimaryColor = frameData?.alpha !== undefined 
+      ? AssSubtitleParser.applyAlphaToColor(primaryColor, alpha)
+      : primaryColor;
 
     return {
       fontFamily: style.fontname || 'System',
-      fontSize: style.fontsize * getResponsiveFontScale(), // Responsive scaling for different devices
+      fontSize: fontSize * getResponsiveFontScale(), // Use frame data fontSize if available
       fontWeight: style.bold ? 'bold' : 'normal',
       fontStyle: style.italic ? 'italic' : 'normal',
-      color: primaryColor,
+      color: finalPrimaryColor,
       textAlign: position.alignment === 1 || position.alignment === 4 || position.alignment === 7 
         ? 'left' 
         : position.alignment === 3 || position.alignment === 6 || position.alignment === 9 
@@ -187,7 +198,7 @@ export const AssSubtitleRenderer: React.FC<AssSubtitleRendererProps> = ({
       transform: [
         { scaleX: style.scaleX / 100 },
         { scaleY: style.scaleY / 100 },
-        { rotate: `${style.angle}deg` }
+        { rotate: `${rotation}deg` } // Use frame data rotation if available
       ],
     } as any;
   };
