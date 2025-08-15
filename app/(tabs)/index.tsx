@@ -16,7 +16,8 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <VideoPlayerWithSubtitles
-        videoSource={require('@/assets/Instagram Reels Video 949.mp4')}
+      //videoSource={require('@/assets/Instagram Reels Video 949.mp4')}
+        videoSource="https://drive.google.com/uc?export=download&id=1pSsVlQog-XSMrXTKXCANejkJLm4roejo"
         subtitleSource={subtitleContent}
         style={styles.videoPlayer}
         onLoad={handleVideoLoad}

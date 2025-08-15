@@ -46,6 +46,7 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
   const [isLoading, setIsLoading] = useState(false);
   const [showControlsOverlay, setShowControlsOverlay] = useState<boolean>(true);
   const [videoUri, setVideoUri] = useState<string>('');
+  const [hasEnded, setHasEnded] = useState(false);
   
   const hideControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width: screenWidth } = Dimensions.get('window');
@@ -72,17 +73,26 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
   useEffect(() => {
     const interval = setInterval(() => {
       if (player && !isLoading) {
-        setCurrentTime(player.currentTime || 0);
+        const currentPlayerTime = player.currentTime || 0;
+        setCurrentTime(currentPlayerTime);
+        
         if (player.duration && duration === 0) {
           setDuration(player.duration);
           setIsLoading(false);
           onLoad?.();
         }
+        
+        // Check if video has ended (within 0.5 seconds of duration)
+        if (player.duration && currentPlayerTime >= player.duration - 0.5 && !hasEnded) {
+          setHasEnded(true);
+          setIsPlaying(false);
+          setShowControlsOverlay(true);
+        }
       }
     }, 100); // Update every 100ms for smooth subtitle sync
     
     return () => clearInterval(interval);
-  }, [player, isLoading, duration, onLoad]);
+  }, [player, isLoading, duration, onLoad, hasEnded]);
 
   // Load video and subtitle assets
   useEffect(() => {
@@ -99,7 +109,6 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
           await videoAsset.downloadAsync();
           videoAssetUri = videoAsset.localUri || videoAsset.uri;
         }
-        console.log(videoAssetUri);
         setVideoUri(videoAssetUri);
 
         // Load subtitle content
@@ -130,7 +139,6 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
 
         // Parse ASS subtitle
         const parsedSubtitles = AssSubtitleParser.parse(subtitleContent);
-        console.log(parsedSubtitles);
         setSubtitleData(parsedSubtitles);
         setIsLoading(false);
       } catch (error) {
@@ -189,6 +197,17 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
   const seekTo = useCallback((position: number) => {
     player.currentTime = position;
     setCurrentTime(position);
+    setHasEnded(false); // Reset ended state when seeking
+    resetControlsTimer();
+  }, [player, resetControlsTimer]);
+
+  // Replay video
+  const replayVideo = useCallback(() => {
+    player.currentTime = 0;
+    setCurrentTime(0);
+    setHasEnded(false);
+    player.play();
+    setIsPlaying(true);
     resetControlsTimer();
   }, [player, resetControlsTimer]);
 
@@ -231,6 +250,8 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
           player={player}
           allowsFullscreen
           allowsPictureInPicture
+          nativeControls={false}
+          contentFit="contain"
         />
         
         {/* Subtitle Overlay */}
@@ -247,13 +268,13 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
         {/* Video Controls */}
         {showControls && showControlsOverlay && (
           <View style={styles.controlsOverlay}>
-            {/* Play/Pause Button */}
+            {/* Play/Pause/Replay Button */}
             <TouchableOpacity 
               style={styles.playButton} 
-              onPress={togglePlayPause}
+              onPress={hasEnded ? replayVideo : togglePlayPause}
             >
               <Ionicons 
-                name={isPlaying ? 'pause' : 'play'} 
+                name={hasEnded ? 'refresh' : (isPlaying ? 'pause' : 'play')} 
                 size={50} 
                 color="rgba(255, 255, 255, 0.9)" 
               />
@@ -263,27 +284,31 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
             <View style={styles.progressContainer}>
               <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
               
-              <View style={styles.progressBar}>
+              <TouchableOpacity 
+                style={styles.progressBar}
+                onPress={(event) => {
+                  const { locationX } = event.nativeEvent;
+                  const progressBarWidth = screenWidth * 0.6; // Approximate width based on flex and margins
+                  const percentage = locationX / progressBarWidth;
+                  const newPosition = Math.max(0, Math.min(duration, percentage * duration));
+                  seekTo(newPosition);
+                }}
+                activeOpacity={0.8}
+              >
                 <View style={styles.progressBarBackground} />
                 <View 
                   style={[
                     styles.progressBarFill, 
-                    { width: `${(currentTime / duration) * 100}%` }
+                    { width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }
                   ]} 
                 />
-                <TouchableOpacity
+                <View
                   style={[
                     styles.progressBarThumb,
-                    { left: `${(currentTime / duration) * 100}%` }
+                    { left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }
                   ]}
-                  onPress={(event) => {
-                    const { locationX } = event.nativeEvent;
-                    const progressBarWidth = screenWidth * 0.6;
-                    const newPosition = (locationX / progressBarWidth) * duration;
-                    seekTo(newPosition);
-                  }}
                 />
-              </View>
+              </TouchableOpacity>
               
               <Text style={styles.timeText}>{formatTime(duration)}</Text>
             </View>

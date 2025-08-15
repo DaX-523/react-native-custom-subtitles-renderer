@@ -150,7 +150,6 @@ export class AssSubtitleParser {
     if (values.length !== format.length) return;
 
     const style: Partial<AssStyle> = {};
-    console.log('format', format, 'values', values, 'line', line)
     for (let i = 0; i < format.length; i++) {
       const field = format[i];
       const value = values[i]?.trim();
@@ -167,19 +166,15 @@ export class AssSubtitleParser {
           break;
         case 'PrimaryColour':
           style.primaryColour = this.parseColor(value);
-          console.log('primaryColour', style.primaryColour)
           break;
         case 'SecondaryColour':
           style.secondaryColour = this.parseColor(value);
-          console.log('secondaryColour', style.secondaryColour)
           break;
         case 'OutlineColour':
           style.outlineColour = this.parseColor(value);
-          console.log('outlineColour', style.outlineColour)
           break;
         case 'BackColour':
           style.backColour = this.parseColor(value);
-          console.log('backColour', style.backColour)
           break;
         case 'Bold':
           style.bold = value === '1' || value === '-1';
