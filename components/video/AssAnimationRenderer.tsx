@@ -29,12 +29,114 @@ export const AssAnimationRenderer: React.FC<AssAnimationProps> = ({
   const [animatedValues] = useState({
     opacity: new Animated.Value(1),
     scale: new Animated.Value(1),
-    rotation: new Animated.Value(0),
+    rotationX: new Animated.Value(0),
+    rotationY: new Animated.Value(0),
+    rotationZ: new Animated.Value(0),
     translateX: new Animated.Value(0),
     translateY: new Animated.Value(0),
   });
 
   useEffect(() => {
+    const getAnimatedValueForProperty = (property: string) => {
+      switch (property) {
+        case 'opacity':
+          return animatedValues.opacity;
+        case 'scale':
+        case 'scaleX':
+        case 'scaleY':
+          return animatedValues.scale;
+        case 'rotationX':
+          return animatedValues.rotationX;
+        case 'rotationY':
+          return animatedValues.rotationY;
+        case 'rotationZ':
+          return animatedValues.rotationZ;
+        case 'translateX':
+          return animatedValues.translateX;
+        case 'translateY':
+          return animatedValues.translateY;
+        default:
+          return null;
+      }
+    };
+
+    const parseAnimations = (text: string): AnimationEffect[] => {
+      const animations: AnimationEffect[] = [];
+      
+      // Parse \t() transformation tags
+      const transformMatches = text.matchAll(/\\t\(([^)]+)\)/g);
+      for (const match of transformMatches) {
+        const params = match[1].split(',');
+        if (params.length >= 3) {
+          const startTime = parseFloat(params[0]) / 1000;
+          const endTime = parseFloat(params[1]) / 1000;
+          const transform = params[2];
+          
+          // Parse different transformation types
+          if (transform.includes('\\fscx') || transform.includes('\\fscy')) {
+            const scaleMatch = transform.match(/\\fsc[xy](\d+)/);
+            if (scaleMatch) {
+              animations.push({
+                type: 'scale',
+                startTime,
+                endTime,
+                fromValue: 1,
+                toValue: parseInt(scaleMatch[1]) / 100,
+                property: 'scale',
+              });
+            }
+          }
+          
+          // Handle X-axis rotation
+          if (transform.includes('\\frx')) {
+            const rotationXMatch = transform.match(/\\frx([+-]?\d+(?:\.\d+)?)/);
+            if (rotationXMatch) {
+              animations.push({
+                type: 'rotationX',
+                startTime,
+                endTime,
+                fromValue: 0,
+                toValue: parseFloat(rotationXMatch[1]),
+                property: 'rotationX',
+              });
+            }
+          }
+
+          // Handle Y-axis rotation
+          if (transform.includes('\\fry')) {
+            const rotationYMatch = transform.match(/\\fry([+-]?\d+(?:\.\d+)?)/);
+            if (rotationYMatch) {
+              animations.push({
+                type: 'rotationY',
+                startTime,
+                endTime,
+                fromValue: 0,
+                toValue: parseFloat(rotationYMatch[1]),
+                property: 'rotationY',
+              });
+            }
+          }
+
+          // Handle Z-axis rotation
+          if (transform.includes('\\frz')) {
+            const rotationZMatch = transform.match(/\\frz([+-]?\d+(?:\.\d+)?)/);
+            if (rotationZMatch) {
+              animations.push({
+                type: 'rotationZ',
+                startTime,
+                endTime,
+                fromValue: 0,
+                toValue: parseFloat(rotationZMatch[1]),
+                property: 'rotationZ',
+              });
+            }
+          }
+        }
+      }
+      
+      return animations;
+    };
+
     const animations = parseAnimations(originalText);
     const animationSequence: Animated.CompositeAnimation[] = [];
 
@@ -75,11 +177,23 @@ export const AssAnimationRenderer: React.FC<AssAnimationProps> = ({
       animationSequence.push(fadeSequence);
     }
 
-    // Handle rotation animations
-    const rotationMatch = originalText.match(/\\frz([+-]?\d+(?:\.\d+)?)/);
-    if (rotationMatch) {
-      const rotation = parseFloat(rotationMatch[1]);
-      animatedValues.rotation.setValue(rotation);
+    // Handle rotation animations - X, Y, and Z axes
+    const rotationXMatch = originalText.match(/\\frx([+-]?\d+(?:\.\d+)?)/);
+    if (rotationXMatch) {
+      const rotationX = parseFloat(rotationXMatch[1]);
+      animatedValues.rotationX.setValue(rotationX);
+    }
+
+    const rotationYMatch = originalText.match(/\\fry([+-]?\d+(?:\.\d+)?)/);
+    if (rotationYMatch) {
+      const rotationY = parseFloat(rotationYMatch[1]);
+      animatedValues.rotationY.setValue(rotationY);
+    }
+
+    const rotationZMatch = originalText.match(/\\frz([+-]?\d+(?:\.\d+)?)/);
+    if (rotationZMatch) {
+      const rotationZ = parseFloat(rotationZMatch[1]);
+      animatedValues.rotationZ.setValue(rotationZ);
     }
 
     // Handle position animations
@@ -123,80 +237,23 @@ export const AssAnimationRenderer: React.FC<AssAnimationProps> = ({
         value.stopAnimation();
       });
     };
-  }, [originalText, duration]);
-
-  const getAnimatedValueForProperty = (property: string) => {
-    switch (property) {
-      case 'opacity':
-        return animatedValues.opacity;
-      case 'scale':
-      case 'scaleX':
-      case 'scaleY':
-        return animatedValues.scale;
-      case 'rotation':
-        return animatedValues.rotation;
-      case 'translateX':
-        return animatedValues.translateX;
-      case 'translateY':
-        return animatedValues.translateY;
-      default:
-        return null;
-    }
-  };
-
-  const parseAnimations = (text: string): AnimationEffect[] => {
-    const animations: AnimationEffect[] = [];
-    
-    // Parse \t() transformation tags
-    const transformMatches = text.matchAll(/\\t\(([^)]+)\)/g);
-    for (const match of transformMatches) {
-      const params = match[1].split(',');
-      if (params.length >= 3) {
-        const startTime = parseFloat(params[0]) / 1000;
-        const endTime = parseFloat(params[1]) / 1000;
-        const transform = params[2];
-        
-        // Parse different transformation types
-        if (transform.includes('\\fscx') || transform.includes('\\fscy')) {
-          const scaleMatch = transform.match(/\\fsc[xy](\d+)/);
-          if (scaleMatch) {
-            animations.push({
-              type: 'scale',
-              startTime,
-              endTime,
-              fromValue: 1,
-              toValue: parseInt(scaleMatch[1]) / 100,
-              property: 'scale',
-            });
-          }
-        }
-        
-        if (transform.includes('\\frz')) {
-          const rotationMatch = transform.match(/\\frz([+-]?\d+(?:\.\d+)?)/);
-          if (rotationMatch) {
-            animations.push({
-              type: 'rotation',
-              startTime,
-              endTime,
-              fromValue: 0,
-              toValue: parseFloat(rotationMatch[1]),
-              property: 'rotation',
-            });
-          }
-        }
-      }
-    }
-    
-    return animations;
-  };
+  }, [originalText, duration, animatedValues]);
 
   const animatedStyle = {
     opacity: animatedValues.opacity,
     transform: [
       { scale: animatedValues.scale },
-      { rotate: animatedValues.rotation.interpolate({
-          inputRange: [0, 360],
-          outputRange: ['0deg', '360deg'],
+      { rotateX: animatedValues.rotationX.interpolate({
+          inputRange: [-180, 180],
+          outputRange: ['-180deg', '180deg'],
+        })},
+      { rotateY: animatedValues.rotationY.interpolate({
+          inputRange: [-180, 180],
+          outputRange: ['-180deg', '180deg'],
+        })},
+      { rotateZ: animatedValues.rotationZ.interpolate({
+          inputRange: [-180, 180],
+          outputRange: ['-180deg', '180deg'],
         })},
       { translateX: animatedValues.translateX },
       { translateY: animatedValues.translateY },
