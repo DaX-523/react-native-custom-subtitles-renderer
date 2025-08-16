@@ -38,7 +38,7 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
   onLoad,
   onError,
   showControls = true,
-  autoPlay = false,
+  autoPlay = true,
 }) => {
   const [subtitleData, setSubtitleData] = useState<AssSubtitle | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -150,7 +150,7 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
     };
 
     loadAssets();
-  }, [ subtitleSource, onLoad, onError]);
+  }, [videoSource, subtitleSource, onLoad, onError]);
 
   // Get active subtitles for current time
   const activeDialogues: AssDialogue[] = subtitleData 
