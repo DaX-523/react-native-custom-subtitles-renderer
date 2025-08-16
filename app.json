@@ -46,6 +46,16 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0ed93fb6-9204-4889-952d-3e8e987569ff"
+      }
+    },
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/0ed93fb6-9204-4889-952d-3e8e987569ff"
     }
   }
 }
