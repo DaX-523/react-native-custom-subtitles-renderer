@@ -3,6 +3,8 @@
  * Parses .ass files while preserving styling and timing information
  */
 
+import { Platform } from "react-native";
+
 export interface AssStyle {
   name: string;
   fontname: string;
@@ -434,14 +436,15 @@ export class AssSubtitleParser {
       let match;
       pattern.regex.lastIndex = 0; // Reset regex
       while ((match = pattern.regex.exec(content)) !== null) {
+        let value: string | number = match[1];
+       
         overrides.push({
           type: pattern.type,
-          value: match[1],
+          value: value.toString(),
           startIndex: 0 // Will be set by caller
         });
       }
     }
-
     return overrides;
   }
 

@@ -10,7 +10,8 @@ import {
   Dimensions, 
   TouchableOpacity, 
   Text, 
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEvent } from 'expo';
@@ -149,7 +150,7 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
     };
 
     loadAssets();
-  }, [videoSource, subtitleSource, onLoad, onError]);
+  }, [ subtitleSource, onLoad, onError]);
 
   // Get active subtitles for current time
   const activeDialogues: AssDialogue[] = subtitleData 
@@ -195,20 +196,34 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
 
   // Seek to position
   const seekTo = useCallback((position: number) => {
-    player.currentTime = position;
-    setCurrentTime(position);
-    setHasEnded(false); // Reset ended state when seeking
-    resetControlsTimer();
-  }, [player, resetControlsTimer]);
+    // Validate that position is a finite number and within valid range
+    if (!isFinite(position) || position < 0 || !duration || duration <= 0) {
+      console.warn('Invalid seek position:', position, 'duration:', duration);
+      return;
+    }
+    
+    // Clamp position to valid range
+    const clampedPosition = Math.max(0, Math.min(duration, position));
+    
+    // Only seek if player exists and position is valid
+    if (player && isFinite(clampedPosition)) {
+      player.currentTime = clampedPosition;
+      setCurrentTime(clampedPosition);
+      setHasEnded(false); // Reset ended state when seeking
+      resetControlsTimer();
+    }
+  }, [player, resetControlsTimer, duration]);
 
   // Replay video
   const replayVideo = useCallback(() => {
-    player.currentTime = 0;
-    setCurrentTime(0);
-    setHasEnded(false);
-    player.play();
-    setIsPlaying(true);
-    resetControlsTimer();
+    if (player) {
+      player.currentTime = 0;
+      setCurrentTime(0);
+      setHasEnded(false);
+      player.play();
+      setIsPlaying(true);
+      resetControlsTimer();
+    }
   }, [player, resetControlsTimer]);
 
   // Handle screen tap
@@ -245,14 +260,14 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
         onPress={handleScreenPress}
         activeOpacity={1}
       >
-        <VideoView
-          style={styles.video}
+        {videoUri && <VideoView
+          style={Platform.OS === 'web' ? styles.videoWeb : styles.video}
           player={player}
           allowsFullscreen
           allowsPictureInPicture
           nativeControls={false}
           contentFit="contain"
-        />
+        />}
         
         {/* Subtitle Overlay */}
         {subtitleData && (
@@ -287,11 +302,26 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
               <TouchableOpacity 
                 style={styles.progressBar}
                 onPress={(event) => {
+                  // Validate event and duration before calculating
+                  if (!event.nativeEvent || !duration || duration <= 0) {
+                    return;
+                  }
+                  
                   const { locationX } = event.nativeEvent;
                   const progressBarWidth = screenWidth * 0.6; // Approximate width based on flex and margins
-                  const percentage = locationX / progressBarWidth;
-                  const newPosition = Math.max(0, Math.min(duration, percentage * duration));
-                  seekTo(newPosition);
+                  
+                  // Validate locationX and progressBarWidth
+                  if (!isFinite(locationX) || !isFinite(progressBarWidth) || progressBarWidth <= 0) {
+                    return;
+                  }
+                  
+                  const percentage = Math.max(0, Math.min(1, locationX / progressBarWidth));
+                  const newPosition = percentage * duration;
+                  
+                  // Only seek if the calculated position is valid
+                  if (isFinite(newPosition)) {
+                    seekTo(newPosition);
+                  }
                 }}
                 activeOpacity={0.8}
               >
@@ -299,13 +329,13 @@ export const VideoPlayerWithSubtitles: React.FC<VideoPlayerWithSubtitlesProps> =
                 <View 
                   style={[
                     styles.progressBarFill, 
-                    { width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }
+                    { width: `${duration > 0 && isFinite(currentTime) && isFinite(duration) ? Math.max(0, Math.min(100, (currentTime / duration) * 100)) : 0}%` }
                   ]} 
                 />
                 <View
                   style={[
                     styles.progressBarThumb,
-                    { left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }
+                    { left: `${duration > 0 && isFinite(currentTime) && isFinite(duration) ? Math.max(0, Math.min(100, (currentTime / duration) * 100)) : 0}%` }
                   ]}
                 />
               </TouchableOpacity>
@@ -330,6 +360,12 @@ const styles = StyleSheet.create({
   },
   video: {
     flex: 1,
+  },
+  videoWeb: {
+    // width: 1000,
+    height: '100%',
+    // maxWidth: "90%",
+    alignSelf: "center",
   },
   loadingContainer: {
     flex: 1,

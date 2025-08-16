@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { AssDialogue, AssStyle, AssSubtitleParser } from './AssSubtitleParser';
 import { AssAnimationRenderer } from './AssAnimationRenderer';
 
@@ -25,14 +25,31 @@ export const AssSubtitleRenderer: React.FC<AssSubtitleRendererProps> = ({
 }) => {
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
-  
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+const getHAlign = (an: number) =>
+  [1,4,7].includes(an) ? 'left' : [3,6,9].includes(an) ? 'right' : 'center';
+
+const getVAlign = (an: number) =>
+  [7,8,9].includes(an) ? 'top' : [4,5,6].includes(an) ? 'middle' : 'bottom';
+
+// measure container to center precisely
+const [containerSize, setContainerSize] = React.useState({ w: 0, h: 0 });
+
   // Calculate responsive font scaling based on screen size
-  const getResponsiveFontScale = () => {
-    const baseWidth = 375; // iPhone standard width
-    const scaleFactor = screenWidth / baseWidth;
-    
-    // Cap the scaling between 0.3 and 0.6 for reasonable sizes
-    return Math.max(0.3, Math.min(0.6, scaleFactor * 0.35));
+   const getResponsiveFontScale = () => {
+    const baseMobileWidth = 375;   // iPhone reference
+    const baseWebWidth = 1366;     // common laptop width
+  
+    if (Platform.OS === "web") {
+      // For web: keep sizes closer to constant, avoid huge jumps on big monitors
+      const scaleFactor = screenWidth / baseWebWidth;
+      return Math.max(0.4, Math.min(1.0, scaleFactor * 0.45));
+    } else {
+        // For mobile: proportional scaling works better
+        const scaleFactor = screenWidth / baseMobileWidth;
+      return Math.max(0.35, Math.min(0.8, scaleFactor * 0.35));
+    }
   };
 
   // Extract positioning and color overrides from the original text
@@ -46,121 +63,151 @@ export const AssSubtitleRenderer: React.FC<AssSubtitleRendererProps> = ({
     let x = positioning.x || 0;
     let y = positioning.y || 0;
     const alignment = positioning.alignment || style.alignment;
+    
     // If no absolute positioning, use alignment-based positioning
     if (!positioning.x || !positioning.y) {
-      switch (alignment) {
-        case 1: // Bottom left
-          x = style.marginL;
-          y = videoHeight - style.marginV;
-          break;
-        case 2: // Bottom center
-          x = videoWidth / 2;
-          // For mobile, use a more conservative bottom position
-          y = videoHeight * 0.87; // 87% down the screen instead of full height
-          break;
-        case 3: // Bottom right
-          x = videoWidth - style.marginR;
-          y = videoHeight - style.marginV;
-          break;
-        case 4: // Middle left
-          x = style.marginL;
-          y = videoHeight / 2;
-          break;
-        case 5: // Center
-          x = videoWidth / 2;
-          y = videoHeight / 2;
-          break;
-        case 6: // Middle right
-          x = videoWidth - style.marginR;
-          y = videoHeight / 2;
-          break;
-        case 7: // Top left
-          x = style.marginL;
-          y = style.marginV;
-          break;
-        case 8: // Top center
-          x = videoWidth / 2;
-          y = style.marginV;
-          break;
-        case 9: // Top right
-          x = videoWidth - style.marginR;
-          y = style.marginV;
-          break;
-        default: // Bottom center
-          x = videoWidth / 2;
-          y = videoHeight - style.marginV;
-      }
+        switch (alignment) {
+            case 1: // Bottom left
+                x = style.marginL;
+                y = videoHeight - style.marginV;
+                break;
+            case 2: // Bottom center
+                x = videoWidth / 2;
+                y = videoHeight * 0.87; // 87% down the screen
+                break;
+            case 3: // Bottom right
+                x = videoWidth - style.marginR;
+                y = videoHeight - style.marginV;
+                break;
+            case 4: // Middle left
+                x = style.marginL;
+                y = videoHeight / 2;
+                break;
+            case 5: // Center
+                x = videoWidth / 2;
+                y = videoHeight / 2;
+                break;
+            case 6: // Middle right
+                x = videoWidth - style.marginR;
+                y = videoHeight / 2;
+                break;
+            case 7: // Top left
+                x = style.marginL;
+                y = style.marginV;
+                break;
+            case 8: // Top center
+                x = videoWidth / 2;
+                y = style.marginV;
+                break;
+            case 9: // Top right
+                x = videoWidth - style.marginR;
+                y = style.marginV;
+                break;
+            default: // Bottom center
+                x = videoWidth / 2;
+                y = videoHeight - style.marginV;
+        }
     }
-
-    // Scale positions to fit current video dimensions with safe bounds
+    
+    // Scale positions to fit current video dimensions
     const scaleX = screenWidth / (videoWidth || screenWidth);
     const scaleY = screenHeight / (videoHeight || screenHeight);
     
-    // Apply conservative scaling for mobile screens
-    const scaledX = x * scaleX;
-    const scaledY = y * scaleY;
+    let scaledX = x * scaleX;
+    let scaledY = y * scaleY;
+    
+    // Center-tending logic for Y-axis
+    const screenCenterY = screenHeight / 2;
+    const isMobile = screenWidth < 768; // Adjust mobile breakpoint as needed
+    
+    if (isMobile) {
+        const centerPullStrength = 0.4; 
+        
+        if (scaledY > screenCenterY) {
+            // Position is in bottom half - lift up toward center
+            scaledY = scaledY - (scaledY - screenCenterY) * centerPullStrength;
+        } else if (scaledY < screenCenterY) {
+            // Position is in top half - push down toward center
+            scaledY = scaledY + (screenCenterY - scaledY) * centerPullStrength;
+        }
+        
+        // For bottom-aligned positions
+        if (alignment >= 1 && alignment <= 3) { // Bottom alignments
+            const minDistanceFromBottom = screenHeight * 0.10; // Keep at least 15% from bottom
+            scaledY = Math.min(scaledY, screenHeight - minDistanceFromBottom);
+        }
+        
+        // For top-aligned positions
+        if (alignment >= 7 && alignment <= 9) { // Top alignments
+            const minDistanceFromTop = screenHeight * 0.2; // Keep at least 15% from top
+            scaledY = Math.max(scaledY, minDistanceFromTop);
+        }
+    }
     
     // Ensure positions stay within screen bounds
     const safeX = Math.max(0, Math.min(screenWidth, scaledX));
     const safeY = Math.max(0, Math.min(screenHeight, scaledY));
-
+    
     return {
-      x: safeX,
-      y: safeY,
-      alignment
+        x: safeX,
+        y: safeY,
+        alignment
     };
-  };
+};
 
   const position = getPosition();
   // Calculate container style based on alignment
   const getContainerStyle = () => {
-    const baseStyle: any = {
-      position: 'absolute',
-      maxWidth: screenWidth * 0.9,
+    const an = position.alignment ?? 2; // default bottom-center like ASS
+    const hAlign = getHAlign(an);
+    const vAlign = getVAlign(an);
+    
+    const maxW = Math.min(screenWidth * 0.75, screenWidth - 24); // keep safe margins
+    const base: any = {
+        position: 'absolute',
+        maxWidth: maxW,
+        paddingHorizontal: 4,
     };
 
-    switch (position.alignment) {
-      case 1: // Bottom left
-      case 4: // Middle left
-      case 7: // Top left
-        baseStyle.left = position.x;
-        baseStyle.alignItems = 'flex-start';
-        break;
-      case 2: // Bottom center
-      case 5: // Center
-      case 8: // Top center
-        baseStyle.left = position.x - (screenWidth * 0.45); // Center the container
-        baseStyle.alignItems = 'center';
-        break;
-      case 3: // Bottom right
-      case 6: // Middle right
-      case 9: // Top right
-        baseStyle.right = screenWidth - position.x;
-        baseStyle.alignItems = 'flex-end';
-        break;
-      default:
-        baseStyle.left = position.x - (screenWidth * 0.45);
-        baseStyle.alignItems = 'center';
-    }
-
-    // Vertical positioning with safe bounds
-    if ([1, 2, 3].includes(position.alignment)) {
-      // Bottom alignment - ensure subtitles stay on screen
-      const bottomDistance = screenHeight - position.y;
-      const minBottomMargin = 10; // Minimum distance from bottom edge
-      const maxBottomDistance = screenHeight - 100; // Maximum allowed distance
-      
-      baseStyle.bottom = Math.max(minBottomMargin, Math.min(maxBottomDistance, bottomDistance));
-    } else if ([4, 5, 6].includes(position.alignment)) {
-      // Middle alignment
-      baseStyle.top = Math.max(20, Math.min(screenHeight / 2, position.y - 20));
+    // Horizontal anchoring
+    if (hAlign === 'left') {
+        base.left = position.x || screenWidth / 2; // fallback to center if x is 0
+        base.alignItems = 'flex-start';
+        base.textAlign = 'left';
+    } else if (hAlign === 'right') {
+        base.right = screenWidth - (position.x || screenWidth / 2); // fallback to center if x is 0
+        base.alignItems = 'flex-end';
+        base.textAlign = 'right';
     } else {
-      // Top alignment
-      baseStyle.top = Math.max(20, position.y);
+        // center alignment - dynamic based on content width
+        const contentWidth = Math.min(containerSize.w, maxW);
+        const halfWidth = contentWidth / 2;
+        
+        // Calculate left position with clamping to keep within screen bounds
+        let leftPos = (position.x || screenWidth / 2) - halfWidth;
+        leftPos = Math.max(8, Math.min(leftPos, screenWidth - contentWidth - 8));
+        
+        base.left = leftPos;
+        base.alignItems = 'center';
+        base.textAlign = 'center';
     }
 
-    return baseStyle;
-  };
+    // Vertical anchoring (unchanged from your original)
+    if (vAlign === 'top') {
+        base.top = clamp(position.y, 8, screenHeight - 8);
+    } else if (vAlign === 'middle') {
+        const halfH = (containerSize.h || 40) / 2;
+
+        base.top = clamp(position.y - halfH, 8, screenHeight - (containerSize.h || 40) - 8);
+    } else {
+        // bottom
+        const distFromBottom = screenHeight - position.y;
+        base.bottom = clamp(distFromBottom, 8, screenHeight - 100);
+    }
+  
+    return base;
+};
+  
 
   // Calculate text style using frame data for smooth transitions
   const getTextStyle = () => {
@@ -214,18 +261,32 @@ export const AssSubtitleRenderer: React.FC<AssSubtitleRendererProps> = ({
         originalText={dialogue.originalText} 
         duration={duration}
       >
-        <Text style={getTextStyle()}>
-          {text}
-        </Text>
+        <Text
+  style={[getTextStyle(), { flexWrap: 'wrap' }]}
+  numberOfLines={0}
+>
+  {text}
+</Text>
+
       </AssAnimationRenderer>
     );
   };
 
   return (
-    <View style={getContainerStyle()}>
+    <View
+      style={getContainerStyle()}
+      onLayout={e => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width !== containerSize.w || height !== containerSize.h) {
+          setContainerSize({ w: width, h: height });
+        }
+      }}
+      pointerEvents="none"
+    >
       {renderFormattedText()}
     </View>
   );
+  
 };
 
 interface SubtitleOverlayProps {
