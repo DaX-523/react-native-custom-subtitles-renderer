@@ -1,6 +1,11 @@
 # Video Player with ASS Subtitle Support
 
 A React Native Expo video player that renders ASS (Advanced SubStation Alpha) subtitles with full styling, positioning, and animation support.
+
+## 🎥 Demo
+
+Check out the video demo: [https://www.loom.com/share/4579635162c04329a0d4d64a83e57b0e?sid=ae33acfc-5d09-4a72-a844-4fbe4c7ee22a](https://www.loom.com/share/4579635162c04329a0d4d64a83e57b0e?sid=ae33acfc-5d09-4a72-a844-4fbe4c7ee22a)
+
 ## Features
 
 - **Full ASS Subtitle Support**: Parses and renders .ass files with complete styling preservation
